@@ -211,11 +211,17 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
 //
 //----------------------------------------------------------------------------------------------------------------------------------------
 //
+//      "vshr.U16   q13, q15,#1\n\t"         //@ q13 = (min(uAF[783],uAF[377]) / 2
+//      "vcgt.U16   q0,  q13, q14\n\t"       //@ q0  = (min(uAF[783],uAF[377]) / 2 > max(uAF[841],uAF[812],uAF[580])
+
         "vqsub.U16  q13, q15, q14\n\t"       //@ q13 = min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580]) 
-        "mov        r2, #0x02FB\n\t"
-        "vdup.16    q12, r2\n\t"             //@ q12 = 0x02FB : 0x02FB : 0x02FB : 0x02FB : 0x02FB : 0x02FB : 0x02FB : 0x02FB
+        "mov        r2, #0x03FF\n\t"
+        "vdup.16    q12, r2\n\t"             //@ q12 = 0x03FF : 0x03FF : 0x03FF : 0x03FF : 0x03FF : 0x03FF : 0x03FF : 0x03FF
 
         "vcgt.U16   q0,  q13, q12\n\t"       //@ q0  = (min(uAF[783],uAF[377] - max(uAF[841],uAF[812],uAF[580])) > MODEAC_MSG_SQUELCH_LEVEL
+
+//      "vcgt.U16   q1,  q13, q12\n\t"       //@ q1  = (min(uAF[783],uAF[377] - max(uAF[841],uAF[812],uAF[580])) > MODEAC_MSG_SQUELCH_LEVEL
+//      "vand       q0, q1, q0\n\t"          //@ q0  = min(F1,F2) > (2 * max(Z7,Z15,Z16)) && (min(F1,F2) - max(Z7,Z15,Z16)) > MODEAC_MSG_SQUELCH_LEVEL
 
         "vmov       q1, q0\n\t"              //@ d2=d3= Lane7Valid : Lane6Valid : Lane5Valid : Lane4Valid : Lane3Valid : Lane2Valid : Lane1Valid : Lane0Valid
         "vuzp.8     d2, d3\n\t"              //@        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00
@@ -224,11 +230,29 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "orrs       r3, r4, r5\n\t"
         "beq        ExitNeon\n\t"            //@ if all 8 lanes fail, goto ExitNeon
 //
-//      Work out decision levels, and put in q13
+//----------------------------------------------------------------------------------------------------------------------------------------
 //
+//      Work out decision levels, and put in uLevelH in q13, and uLevelL in q11
+//
+//      q13 = (max(F1,F2) + min(Z7,Z15,Z16)) / 2
         "vshr.S16   q13,q13,#1\n\t"          //@ q13 = (min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580])) / 2
         "vsub.U16   q13,q15,q13\n\t"         //@ q13 = (min(uAF[783],uAF[377]) + max(uAF[841],uAF[812],uAF[580])) / 2
-//		"vadd.U16   q13,q13,0xFFFF\n\t"
+
+//		q13 = mean bit signal level.
+//
+//      Set q13 = uLevelH = mean * sqrt(2)
+//      "vshr.U16   q11,q13,#2\n\t"          //@ q11 = (min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580])) / 4
+//      "vadd.U16   q13,q13,q11\n\t"         //@ q13 = q13 * 1.25
+//      "vshr.U16   q11,q13,#1\n\t"          //@ q11 = (min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580])) / 8
+//      "vadd.U16   q13,q13,q11\n\t"         //@ q13 = q13 * 1.375
+//      "vshr.U16   q11,q13,#2\n\t"          //@ q11 = (min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580])) / 32
+//      "vadd.U16   q13,q13,q11\n\t"         //@ q13 = q13 * 1.40625
+//      "vshr.U16   q11,q13,#2\n\t"          //@ q11 = (min(uAF[783],uAF[377]) - max(uAF[841],uAF[812],uAF[580])) / 128
+//      "vadd.U16   q13,q13,q11\n\t"         //@ q13 = q13 * 1.4140625 (sqrt(2))
+//
+//      Set q11 = uLevelL = mean * sqrt(2) / 2
+//      "vshr.U16   q11,q13,#1\n\t"          //@ q11 = q13 / 2
+
 //
 //      Calculate the Signal Strength for F1 and F2, and sum into q15..q14
 //
@@ -251,7 +275,7 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "add        r0, r0, #60\n\t"
         "vext.8     q4, q4, q5, #2\n\t"      //@ q4  = uAF[ 7] : uAF[ 6] : uAF[ 5] : uAF[ 4] : uAF[ 3] : uAF[ 2] : uAF[ 1] : uAF[ 0]
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
 
         "vshr.U16   q1, q1, #15\n\t"
         "vshl.U16   q6, q6, #1\n\t"          //@ q6 = q6 << 1
@@ -261,7 +285,7 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "vld1.64    { q4 }, [r0]\n\t"        //@ q4 = puAF[7..0] Pick up eight uAF input values
         "add        r0, r0, #56\n\t"
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
 
         "vshr.U16   q1, q1, #15\n\t"
         "vshl.U16   q6, q6, #1\n\t"          //@ q6 = q6 << 1
@@ -282,7 +306,10 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "vld1.64    { q4 }, [r0]\n\t"        //@ q4 = puAF[7..0] Pick up eight uAF input values
         "add        r0, r0, #56\n\t"
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
+        //"vcgt.U16   q2, q11,q4\n\t"          //@ q2 = uLevelL > puAF[7..0]
+		//"vorr       q2, q1, q2\n\t"          //@ q2 = (puAF[7..0] > uLevelH) || (uLevelL > puAF[7..0])
+		//"vand       q0, q0, q2\n\t"          //@ q0 = Lane7Valid...Lane0Valid
 
         "vand       q4, q1, q4\n\t"          //@ clear the uAF xalues which are less than the decision level
         "vaddw.U16  q15,q15,d9\n\t"          //@ q15 += uAF[7] : uAF[6] : uAF[5] : uAF[4]
@@ -298,9 +325,12 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "add        r0, r0, #60\n\t"
         "vext.8     q4, q4, q5, #2\n\t"      //@ q4  = uAF[ 7] : uAF[ 6] : uAF[ 5] : uAF[ 4] : uAF[ 3] : uAF[ 2] : uAF[ 1] : uAF[ 0]
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
+        //"vcgt.U16   q2, q11,q4\n\t"          //@ q2 = uLevelL > puAF[7..0]
+		//"vorr       q2, q1, q2\n\t"          //@ q2 = (puAF[7..0] > uLevelH) || (uLevelL > puAF[7..0])
+		//"vand       q0, q0, q2\n\t"          //@ q0 = Lane7Valid...Lane0Valid
 
-        "vand       q4, q1, q4\n\t"          //@ clear the uAF xalues which are less than the decision level
+        "vand       q4, q1, q4\n\t"          //@ clear the uAF values which are less than the decision level
         "vaddw.U16  q15,q15,d9\n\t"          //@ q15 += uAF[7] : uAF[6] : uAF[5] : uAF[4]
         "vaddw.U16  q14,q14,d8\n\t"          //@ q14 += uAF[3] : uAF[2] : uAF[1] : uAF[0]
 
@@ -324,7 +354,10 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "add        r0, r0, #60\n\t"
         "vext.8     q4, q4, q5, #2\n\t"      //@ q4  = uAF[ 7] : uAF[ 6] : uAF[ 5] : uAF[ 4] : uAF[ 3] : uAF[ 2] : uAF[ 1] : uAF[ 0]
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
+        //"vcgt.U16   q2, q11,q4\n\t"          //@ q2 = uLevelL > puAF[7..0]
+		//"vorr       q2, q1, q2\n\t"          //@ q2 = (puAF[7..0] > uLevelH) || (uLevelL > puAF[7..0])
+		//"vand       q0, q0, q2\n\t"          //@ q0 = Lane7Valid...Lane0Valid
 
         "vand       q4, q1, q4\n\t"          //@ clear the uAF xalues which are less than the decision level
         "vaddw.U16  q15,q15,d9\n\t"          //@ q15 += uAF[7] : uAF[6] : uAF[5] : uAF[4]
@@ -338,7 +371,10 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "vld1.64    { q4 }, [r0]\n\t"        //@ q4 = puAF[7..0] Pick up eight uAF input values
         "add        r0, r0, #56\n\t"
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
+        //"vcgt.U16   q2, q11,q4\n\t"          //@ q2 = uLevelL > puAF[7..0]
+		//"vorr       q2, q1, q2\n\t"          //@ q2 = (puAF[7..0] > uLevelH) || (uLevelL > puAF[7..0])
+		//"vand       q0, q0, q2\n\t"          //@ q0 = Lane7Valid...Lane0Valid
 
         "vand       q4, q1, q4\n\t"          //@ clear the uAF xalues which are less than the decision level
         "vaddw.U16  q15,q15,d9\n\t"          //@ q15 += uAF[7] : uAF[6] : uAF[5] : uAF[4]
@@ -354,7 +390,16 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
 //
 //----------------------------------------------------------------------------------------------------------------------------------------
 //
-// We can skip F2, Z15 and Z16 since we already know they are 1-0-0 and b0 since it isn't used anywhere
+        //"vmov       q1, q0\n\t"              //@ d2=d3= Lane7Valid : Lane6Valid : Lane5Valid : Lane4Valid : Lane3Valid : Lane2Valid : Lane1Valid : Lane0Valid
+        //"vuzp.8     d2, d3\n\t"              //@        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00        FF/00
+
+        //"vmov       r4, r5, d3\n\t"
+        //"orrs       r3, r4, r5\n\t"
+        //"beq        ExitNeon\n\t"            //@ if all 8 lanes fail, goto ExitNeon
+//
+//----------------------------------------------------------------------------------------------------------------------------------------
+//
+// We can skip F2, Z15 and Z16 since we already know they are 1-0-0
 //
 //       Go straight to SPI
         "add        r0,  #176\n\t"           //@ skip F2, Z15, Z16 and align with SPI
@@ -378,7 +423,7 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "add        r0, r0, #60\n\t"
         "vext.8     q4, q4, q5, #2\n\t"      //@ q4  = uAF[ 7] : uAF[ 6] : uAF[ 5] : uAF[ 4] : uAF[ 3] : uAF[ 2] : uAF[ 1] : uAF[ 0]
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
 
         "vshr.U16   q1, q1, #15\n\t"
         "vshl.U16   q8, q8, #1\n\t"          //@ q8 = q8 << 1
@@ -387,7 +432,7 @@ uint32_t detectModeAArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
         "vld1.64    { q4 }, [r0]\n\t"        //@ q4 = puAF[7..0] Pick up eight uAF input values
         "add        r0, r0, #56\n\t"
 
-        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > decision levels 
+        "vcgt.U16   q1, q4, q13\n\t"         //@ q1 = puAF[7..0] > uLevelH 
 
         "vshr.U16   q1, q1, #15\n\t"
         "vshl.U16   q8, q8, #1\n\t"          //@ q8 = q8 << 1
@@ -746,7 +791,7 @@ uint32_t detectModeAArmSIMD(uint16_t* puAF, tMessageRaw* pLane) {
 //
         "usub16  r12,r11,r10\n\t"            //@ r12.h = max(uAF[842],uAF[581],uAF[813]) - min(uAF[784],uAF[378])
                                              //@ r12.l = max(uAF[841],uAF[580],uAF[812]) - min(uAF[783],uAF[377])
-        "mov     r3,     #0x000002FB\n\t"
+        "mov     r3,     #0x000003FF\n\t"
         "orr     r3, r3, LSL#16\n\t"         //@ r3.h  = max(uAF[842],uAF[581],uAF[813]) - min(uAF[784],uAF[378]) + MODEAC_MSG_SQUELCH_LEVEL
         "qadd16  r3, r3, r12\n\t"            //@ r3.h  = max(uAF[841],uAF[580],uAF[812]) - min(uAF[783],uAF[377]) + MODEAC_MSG_SQUELCH_LEVEL
 
@@ -1178,25 +1223,52 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     uint32_t uModeA;
     uint32_t nBits;
     uint32_t uSig;
-    uint16_t uMin, uMax, uSample, uLevel;
+    uint16_t uMin, uMax, uSample, uLevelH;//, uLevelL;
     uint16_t uDL1Bits, uDL2Bits, uDL4Bits;
     uint16_t uGarbled;
-
+/*
+    uint64_t lSum   = 0;
+    uint64_t lSumSq = 0;
+    uint32_t uSum;
+    uint32_t uSumSq;
+    uint32_t uVar;
+    uint32_t uSd;
+    uint32_t uRootSumSq;
+*/
     // iMax = min (F1,F2);      -- This is the lower of F1 and F2 
     // iMin = max (Z7,Z15,Z16); -- This is the higher of Z7, F15 and F16
     uMax = (puAF[377] < puAF[783]) ? puAF[377] : puAF[783];
     uMin = (puAF[580] > puAF[812]) ? puAF[580] : puAF[812];
-    uMin = (uMin > puAF[841]) ? uMin : puAF[841];
+    uMin = (uMin      > puAF[841]) ? uMin      : puAF[841];
 
     // Return if insufficient difference between minimum and maximum.
     if ((uMax - uMin) < MODEAC_MSG_SQUELCH_LEVEL)
-    {
-        return (0);
-    }
+        {return (0);}
+/*
+//    if (uMax <= (uMin << 1))
+//        {return (0);}
 
+    for (i = 0; i < 1024; i++){
+        lSum   +=  puAF[i];
+        lSumSq += (puAF[i] * puAF[i]);
+    }
+    uSum       = lSum   / 1024;
+    uSumSq     = lSumSq / 1024;
+    uRootSumSq = sqrt(uSumSq);
+
+    //if (uMax <= (uRootSumSq << 1))
+    //    {return (0);}
+
+	// Variance is the sum of the squares minus the square of the sums
+	uVar = uSumSq - (uSum * uSum);
+	// Standard Deviation is the square root of the variance
+	uSd  = (uint32_t) sqrt(uVar);
+*/
     // If we get here we have a potential F1,F2 detection.
-    // Calculate the decision level for bit detection as half way between iMin and iMax
-    uLevel = (uMax + uMin) / 2;
+    // Calculate the decision level for bit detection as half way between uMin and uMax
+    uLevelH = (uMin + uMax) / 2;
+//  uLevelH = uMin + (2 * (uMax - uMin) / 3);
+//  uLevelL = uMin + (    (uMax - uMin) / 3);
     nBits = 0;
     uModeA = 0;
 
@@ -1205,7 +1277,7 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     for (i = 0; i < 13; i++) {
         uSample = *puAF; puAF += 29;
         uDL4Bits = uDL4Bits << 1;
-        if (uSample >= uLevel) { // its a one
+        if (uSample >= uLevelH) { // its a one
             uDL4Bits |= 1;
         }
     }
@@ -1219,11 +1291,13 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     for (i = 1; i < 7; i++) {
         uSample = *puAF; puAF += 29;
         uDL2Bits = uDL2Bits << 1;
-        if (uSample >= uLevel) { // its a one
+        if (uSample >= uLevelH) { // its a one
             uDL2Bits |= 1;
             uModeA |= iModeABitTable[i]; // or in the correct bit
             nBits++;
             uSig += uSample;
+//      } else if (uSample >= uLevelL) { // its questionable
+//          return(0);
         }
     }
     // Skip Z7 (puAF[580]) because we already know it's a '0'
@@ -1234,11 +1308,13 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     for (i = 8; i < 14; i++) {
         uSample = *puAF; puAF += 29;
         uDL2Bits = uDL2Bits << 1;
-        if (uSample >= uLevel) { // its a one
+        if (uSample >= uLevelH) { // its a one
             uDL2Bits |= 1;
             uModeA |= iModeABitTable[i]; // or in the correct bit
             nBits++;
             uSig += uSample;
+//        } else if (uSample >= uLevelL) { // its questionable
+//            return(0);
         }
     }
 
@@ -1249,7 +1325,7 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     // Calculate the SPI bit puAF[870]
     uDL1Bits = 0;
     uSample = *puAF; puAF += 29;
-    if (uSample >= uLevel) { // its a one
+    if (uSample >= uLevelH) { // its a one
         uDL1Bits |= 1;
         uModeA |= iModeABitTable[17]; // or in the correct bit
         nBits++;
@@ -1261,7 +1337,7 @@ uint32_t detectModeA(uint16_t* puAF, tMessageRaw* pLane) {
     for (i = 0; i < 10; i++) {
         uSample = *puAF; puAF += 29;
         uDL1Bits = uDL1Bits << 1;
-        if (uSample >= uLevel) { // its a one
+        if (uSample >= uLevelH) { // its a one
             uDL1Bits |= 1;
         }
     }
@@ -1294,7 +1370,15 @@ static void detectBufferModeA(uint16_t* puAF, uint64_t lTime) {
 
     for (j = 0; j < MODES_ASYNC_BUF_SAMPLES; j++) {
 /*
-        if (lTime == 0x0ADA54D5) {
+        if (lTime == 0x0F957773) {
+            FILE* pFile = fopen("ModeA.csv", "w");
+            if (pFile) {
+                int k;
+                for (k = 0; k < 1024; k++) {
+                    fprintf(pFile, "%d\n", puAF[j + k]);
+                }
+                fclose(pFile);
+            }
             __asm nop;
         }
 */

@@ -314,7 +314,7 @@ void interactiveListData(tModesMessage* mm) {
     char* p = str;
 //  FILE* hFile;
 
-    p += sprintf(p, "0;%06X;%08X;*", mm->rm.uCrc, (uint32_t)mm->rm.lTime);
+    p += sprintf(p, "%02X;%06X;%08X;*", mm->signalLevel, mm->rm.uCrc, (uint32_t)mm->rm.lTime);
 
     for (j = 0; j < mm->rm.uMsgBits / 8; j++) {
         p += sprintf(p, "%02X", mm->rm.ucMsg[j]);

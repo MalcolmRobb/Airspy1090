@@ -38,9 +38,16 @@
 //
 // pIfIn, pAfOut, pIF_iDelay and pAF_iDelay ***MUST*** all be DWORD aligned. If they aren't this code will fault. ARM doesn't support non word aligned loads/stores
 //
+//layout asm
+//break IfDemodulateArmAsm
+//break *0x17b2c
+//break *0x17adc
+//info registers q0
 void IfDemodulateArmAsm(volatile unsigned short* pIfIn, volatile unsigned short* pAfOut, volatile unsigned short* pIF_iDelay, volatile unsigned short* pAF_iDelay) {
 
 	__asm volatile(
+    ".arch armv7-a\n\t"
+    ".fpu  neon\n\t"
 
 	"push   { r2-r12, lr }\n\t"    //@ Push the registers that need to be preserved onto the stack
  
@@ -74,99 +81,118 @@ void IfDemodulateArmAsm(volatile unsigned short* pIfIn, volatile unsigned short*
 	//# The AF LPF transfer function is uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
 	//# This has a range of 0x27FD8..0x00000, which can overflow 16 bit maths.However, it is safe to add up to four
 	//# uAF[] values(maximum = 0xFFF0)
-	"uadd16  r3, r12, r11\n\t"        //@ r3.h = uAF[-3] + uAF[-1](uint16_t safe)
-		                              //@ r3.l = uAF[-4] + uAF[-2](uint16_t safe)
+	"uadd16  	r3, r12, r11\n\t"        //@ r3.h = uAF[-3] + uAF[-1](uint16_t safe)
+		                                 //@ r3.l = uAF[-4] + uAF[-2](uint16_t safe)
 
-	"uadd16  r3, r3, r10\n\t"         //@ r3.h = uAF[-5] + uAF[-3] + uAF[-1](uint16_t safe)
-		                              //@ r3.l = uAF[-6] + uAF[-4] + uAF[-2](uint16_t safe)
+	"uadd16  	r3, r3, r10\n\t"         //@ r3.h = uAF[-5] + uAF[-3] + uAF[-1](uint16_t safe)
+		                                 //@ r3.l = uAF[-6] + uAF[-4] + uAF[-2](uint16_t safe)
 
-	"uadd16  r3, r3, r9\n\t"          //@ r3.h = uAF[-7] + uAF[-5] + uAF[-3] + uAF[-1](uint16_t safe)
-		                              //@ r3.l = uAF[-8] + uAF[-6] + uAF[-4] + uAF[-2](uint16_t safe)
+	"uadd16  	r3, r3, r9\n\t"          //@ r3.h = uAF[-7] + uAF[-5] + uAF[-3] + uAF[-1](uint16_t safe)
+	                                     //@ r3.l = uAF[-8] + uAF[-6] + uAF[-4] + uAF[-2](uint16_t safe)
 
-	"uxth    r2, r8, ROR#16\n\t"      //@ r2.h = 0x0000:AF[-9]
-	"uxtah   r2, r2, r3\n\t"          //@ r2 = uAF[-9] + uAF[-8] + uAF[-6] + uAF[-4] + uAF[-2]
-	"uxtah   r2, r2, r3, ROR#16\n\t"  //@ r2 = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1]
+	"uxth    	r2, r8, ROR#16\n\t"      //@ r2.h = 0x0000:AF[-9]
+	"uxtah   	r2, r2, r3\n\t"          //@ r2 = uAF[-9] + uAF[-8] + uAF[-6] + uAF[-4] + uAF[-2]
+	"uxtah   	r2, r2, r3, ROR#16\n\t"  //@ r2 = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1]
 
-	"mov     r3, #65536\n\t"          //@ r3 = loop counter = MODES_ASYNC_BUF_SAMPLES / 2
-"fir128Loop1:\n\t"
-	"ldr     r6, [r0],#4\n\t"         //@ r6 = *r0++    Pick up the next two uIF input values r6.h = uIF[1], r6.l = uIF[0]
+	"mov     	r3, #65536\n\t"          //@ r3 = loop counter = MODES_ASYNC_BUF_SAMPLES / 2
+    //"vmov.U32 q0, #0\n\t"              //@ d0 = d1 = 0
+    //"vmov.U32	q1, #0\n\t"              //@ d2 = d3 = 0
 
-	"lsl     r14, r5, #2\n\t"         //@ r14.h = uIF[-1] * 4
-		                              //@ r14.l = uIF[-2] * 4
-	"uadd16  r14, r14, r5\n\t"        //@ r14.h = uIF[-1] * 5
-                                      //@ r14.l = uIF[-2] * 5
+"firLoop1:\n\t"
+	"ldr     	r6, [r0],#4\n\t"         //@ r6 = *r0++    Pick up the next two uIF input values r6.h = uIF[1], r6.l = uIF[0]
 
-	"uadd16  r7, r7, r6\n\t"          //@ r7.h += uIF[1] =           uIF[-3] + uIF[-2] + uIF[-1]          + uIF[1]
-		                              //@ r7.l += uIF[0] = uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
+	"lsl     	r14, r5, #2\n\t"         //@ r14.h = uIF[-1] * 4
+		                                 //@ r14.l = uIF[-2] * 4
+	"uadd16  	r14, r14, r5\n\t"        //@ r14.h = uIF[-1] * 5
+                                         //@ r14.l = uIF[-2] * 5
 
-	"add     r7, r7, r6, LSL#16\n\t"  //@ r7.h += uIF[0] =           uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
-                                      //@ r7.l += uIF[0] = uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
+	"uadd16  	r7, r7, r6\n\t"          //@ r7.h += uIF[1] =           uIF[-3] + uIF[-2] + uIF[-1]          + uIF[1]
+		                                 //@ r7.l += uIF[0] = uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
+
+	"add     	r7, r7, r6, LSL#16\n\t"  //@ r7.h += uIF[0] =           uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
+                                         //@ r7.l += uIF[0] = uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
 
 	//# Do filtering for uIF
-	"usub16  r14, r14, r7\n\t"        //@ r14h = (5 * uIF[-1]) - (uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1])
-                                      //@ r14l = (5 * uIF[-2]) - (uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0])
+	"usub16  	r14, r14, r7\n\t"        //@ r14h = (5 * uIF[-1]) - (uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1])
+                                         //@ r14l = (5 * uIF[-2]) - (uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0])
 
 	//# Update r7 ready for next loop
-	"usub16  r7, r7, r4\n\t"          //@ r7.h -= uIF[-3] =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
-		                              //@ r7.l -= uIF[-4] = uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
-	"pkhtb   r7, r7, r7, ASR#16\n\t"  //@ r7.h            =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
-		                              //@ r7.l            =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
-	"sub     r7, r7, r5, LSL#16\n\t"  //@ r7.h -= uIF[2]  =                     uIF[-1] + uIF[0] + uIF[1]
-                                      //@ r7.l -=      0  =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
+	"usub16		r7, r7, r4\n\t"          //@ r7.h -= uIF[-3] =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
+					                     //@ r7.l -= uIF[-4] = uIF[-3] + uIF[-2] + uIF[-1] + uIF[0]
+	"pkhtb		r7, r7, r7, ASR#16\n\t"  //@ r7.h            =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
+						                 //@ r7.l            =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
+	"sub		r7, r7, r5, LSL#16\n\t"  //@ r7.h -= uIF[2]  =                     uIF[-1] + uIF[0] + uIF[1]
+					                     //@ r7.l -=      0  =           uIF[-2] + uIF[-1] + uIF[0] + uIF[1]
 
 	//# Shift uIF pipeline ready for next loop.Also frees r6 for re - use
-	"mov     r4, r5\n\t"              //@ r4.h = uIF[-1], r4.l = uIF[-2]
-	"mov     r5, r6\n\t"              //@ r5.h = uIF[ 1], r5.l = uIF[ 0]
+	"mov		r4, r5\n\t"              //@ r4.h = uIF[-1], r4.l = uIF[-2]
+	"mov		r5, r6\n\t"              //@ r5.h = uIF[ 1], r5.l = uIF[ 0]
 
 	//# Do ABS operation on r14.l
-	"sxth    r6, r14\n\t"             //@ r6 = r14l = (5 * uIF[-2]) - (uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0])
-	"rsbs    r6, r6, #0\n\t"          //@ r6 = 0 - r14l, Carry set if no borrow, Carry clear if borrow
-	"pkhtbpl r14, r14, r6\n\t"        //@ if ((0-r14.l) >=0) r14.l = r6.l
+	"sxth		r6, r14\n\t"             //@ r6 = r14l = (5 * uIF[-2]) - (uIF[-4] + uIF[-3] + uIF[-2] + uIF[-1] + uIF[0])
+	"rsbs		r6, r6, #0\n\t"          //@ r6 = 0 - r14l, Carry set if no borrow, Carry clear if borrow
+	"pkhtbpl	r14, r14, r6\n\t"        //@ if ((0-r14.l) >=0) r14.l = r6.l
 
 	//# Do ABS operation on r14.h
-	"sxth    r6, r14, ROR#16\n\t"     //@ r6 = r14h = (5 * uIF[-1]) - (uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1])
-	"rsbs    r6, r6, #0\n\t"          //@ r6 = 0 - r14h
-	"pkhbtpl r14, r14, r6, LSL#16\n\t" //@ if ((0-r14.h) >=0) r14.h = r4.l
+	"sxth		r6, r14, ROR#16\n\t"     //@ r6 = r14h = (5 * uIF[-1]) - (uIF[-3] + uIF[-2] + uIF[-1] + uIF[0] + uIF[1])
+	"rsbs		r6, r6, #0\n\t"          //@ r6 = 0 - r14h
+	"pkhbtpl	r14, r14, r6, LSL#16\n\t" //@ if ((0-r14.h) >=0) r14.h = r4.l
 
 	//# Do filtering for uAF[0].At this point r2 = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1]
-	"uxtah   r2, r2, r14\n\t"         //@ r2 += uAF[0] = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
-	"usat    r6, #16, r2\n\t"         //@ r6 = (r2 > 0xFFFF) ? 0xFFFF : r2
+	"uxtah		r2, r2, r14\n\t"         //@ r2 += uAF[0] = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
+	"usat		r6, #16, r2\n\t"         //@ r6 = (r2 > 0xFFFF) ? 0xFFFF : r2
+	//"vmov.U32	d3[0], r2\n\t"           //@ d3 = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
+	//"vadd.U32	d2, d2, d3\n\t"          //@ d2 +=  Sample 
+	//"vmlal.U32	q0, d3, d3\n\t"      //@ q0 += (Sample*Sample)
 
 	//# Do filtering for uAF[1].At this point r2 = uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
-	"sub     r2, r2, r8, LSR#16\n\t"  //@ r2 -= uAF[-9] = uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
+	"sub		r2, r2, r8, LSR#16\n\t"  //@ r2 -= uAF[-9] = uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0]
 
-	//# At this point we're done with r8. Use it to saturate       
-	"uxtah   r2, r2, r14, ROR#16\n\t" //@ r2 += uAF[1] = uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1]
-	"usat    r8, #16, r2\n\t"         //@ r8 = (r2 > 0xFFFF) ? 0xFFFF : r2
+	//# At this point we're done with r8. Use it to saturate r2 to 16 bits      
+	"uxtah		r2, r2, r14, ROR#16\n\t" //@ r2 += uAF[1] = uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1]
+	"usat		r8, #16, r2\n\t"         //@ r8 = (r2 > 0xFFFF) ? 0xFFFF : r2
+	//"vmov.U32	d3[0], r2\n\t"           //@ d3 = uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1]
+	//"vadd.U32	d2, d2, d3\n\t"          //@ d2 +=  Sample 
+	//"vmlal.U32	q0, d3, d3\n\t"      //@ q0 += (Sample*Sample)
 
 	//# assemble a Word Write output oAF[1]:oAF[0]
-	"pkhbt   r6, r6, r8, LSL#16\n\t"  //@ r6.h = r8.l = sat(uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1])
-                                      //@ r6.l = sat(uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0])
+	"pkhbt		r6, r6, r8, LSL#16\n\t"  //@ r6.h = r8.l = sat(uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1])
+                                         //@ r6.l = sat(uAF[-9] + uAF[-8] + uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0])
 
 	//# Write the latest two output words
-	"str     r6, [r1],#4\n\t"         //@ * r1++ = r6
+	"str		r6, [r1], #4\n\t"        //@ *r1++ = r6
 
 	//# Done Filtering, prepare for next iteration
-	"uxth    r8, r9\n\t"              //@ r8 = r9.l = uAF[-8]
-	"sub     r2, r2, r8\n\t"          //@ r2 -= uAF[-8] = uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1]
+	"uxth		r8, r9\n\t"              //@ r8 = r9.l = uAF[-8]
+	"sub		r2, r2, r8\n\t"          //@ r2 -= uAF[-8] = uAF[-7] + uAF[-6] + uAF[-5] + uAF[-4] + uAF[-3] + uAF[-2] + uAF[-1] + uAF[0] + uAF[1]
 
 	//# shift uAF pipeline ready for next loop.
-	"mov     r8, r9\n\t"              //@ r8.h = uAF[-7], r8.l = uAF[-8]
-	"mov     r9, r10\n\t"             //@ r9.h = uAF[-5], r9.l = uAF[-6]
-	"mov     r10, r11\n\t"            //@ r10.h = uAF[-3], r10.l = uAF[-4]
-	"mov     r11, r12\n\t"            //@ r11.h = uAF[-1], r11.l = uAF[-2]
-	"mov     r12, r14\n\t"            //@ r12.h = uAF[1], r12.l = uAF[0]
+	"mov		r8, r9\n\t"              //@ r8.h = uAF[-7], r8.l = uAF[-8]
+	"mov		r9, r10\n\t"             //@ r9.h = uAF[-5], r9.l = uAF[-6]
+	"mov		r10, r11\n\t"            //@ r10.h = uAF[-3], r10.l = uAF[-4]
+	"mov		r11, r12\n\t"            //@ r11.h = uAF[-1], r11.l = uAF[-2]
+	"mov		r12, r14\n\t"            //@ r12.h = uAF[1], r12.l = uAF[0]
 
-	"subs    r3, r3, #1\n\t"          //@ decrement the word count by 1
-	"bne     fir128Loop1\n\t"         //@ loop until word count is zero
+	"subs		r3, r3, #1\n\t"          //@ decrement the word count by 1
+	"bne		firLoop1\n\t"            //@ loop until word count is zero
 
-	"pop    { r2 - r3 }\n\t"          //@ Retrieve r2 and r3 from the stack
+	"pop		{ r2 - r3 }\n\t"         //@ Retrieve r2 and r3 from the stack
 
-	"stm    r2, { r4, r5 }\n\t"       //@ save the final  4 uIF values ready for next time
-	"stm    r3, { r8 - r12 }\n\t"     //@ save the final 10 uAF values ready for next time
+	"stm		r2, { r4, r5 }\n\t"      //@ save the final  4 uIF values ready for next time
+	"stm		r3, { r8 - r12 }\n\t"    //@ save the final 10 uAF values ready for next time
 
-	"pop    { r4 - r12, lr }\n\t"     //@ Pop the registers that need to be preserved from the stack (no return for inline asm)
-//	"pop    { r4 - r12, pc }\n\t"     //@ Pop the registers that need to be preserved from the stack and return
+	// d2 = Sum   = sum of the Samples
+	// q0 = SumSq = sum of the Squares
+	//"vshr.U64	d2, d2, #17\n\t"		 //@ d2 = d2 / MODES_ASYNC_BUF_SAMPLES
+	//"vshr.U64	q0, q0, #17\n\t"		 //@ q0 = q0 / MODES_ASYNC_BUF_SAMPLES
+
+	//"vmull.U32  q1, d2, d2\n\t"		 //@ q1 = (d2*d2) = square of the sums
+	//"vsub.U64   q1, q0, q1\n\t"	     //@ q1 = sum of the squares - square of the sums 
+	//"vmov       r2, r3, d2\n\t"
+
+	//"mov        r0, r3\n\t"
+	"pop		{ r4 - r12, lr }\n\t"    //@ Pop the registers that need to be preserved from the stack (no return for inline asm)
+//	"pop		{ r4 - r12, pc }\n\t"    //@ Pop the registers that need to be preserved from the stack and return
 
       : "=r" (pIfIn) // Outputs in r0
       : "g" (pIfIn), "g" (pAfOut), "g" (pIF_iDelay), "g" (pAF_iDelay)
@@ -184,6 +210,14 @@ void IfDemodulateArmAsm(volatile unsigned short* pIfIn, volatile unsigned short*
 
 static void IfDemodulateC(uint16_t* pIfIn, uint16_t* pAfOut) {
 	uint32_t   j;
+
+//	uint64_t lAF_Sum   = 0;
+//	uint64_t lAF_SumSq = 0;
+//	uint32_t uAF_Sum;
+//	uint32_t uAF_SumSq;
+//	uint32_t uAF_Var;
+//	uint32_t uAF_Sd;
+//	uint32_t uAF_NF;
 
 	int16_t* iIF_Root = (int16_t*)Modes.uIF_iDelay;
 	int16_t* iAF_Root = (int16_t*)Modes.uAF_iDelay;
@@ -211,9 +245,26 @@ static void IfDemodulateC(uint16_t* pIfIn, uint16_t* pAfOut) {
 		// Output the filtered sample
 		*pAfOut++ = (uint16_t)iAF_Out;
 
+		//lAF_Sum   += iAF_Out;
+		//lAF_SumSq += (iAF_Out * iAF_Out);
+
 		iIF_Delay++;
 		iAF_Delay++;
 	}
+
+	//uAF_SumSq = (uint32_t)(lAF_SumSq / MODES_ASYNC_BUF_SAMPLES);
+	//uAF_Sum   = (uint32_t)(lAF_Sum   / MODES_ASYNC_BUF_SAMPLES);
+
+	// Variance is the sum of the squares minus the square of the sums
+	//uAF_Var = uAF_SumSq - (uAF_Sum * uAF_Sum);
+	// Standard Deviation is the square root of the variance
+	//uAF_Sd  = (uint32_t) sqrt(uAF_Var);
+
+    // Set the noise floor to the RMS of the input.
+	//uAF_NF = (uint32_t) sqrt (uAF_SumSq);
+
+    // Set the noise floor to the AF mean plus one standard deviation.
+    //uAF_NF = uAF_Sum + uAF_Sd;
 
 	memcpy(iIF_Root, iIF_Delay, kIF_Size * sizeof(uint16_t));
 	memcpy(iAF_Root, iAF_Delay, kAF_Size * sizeof(uint16_t));
@@ -221,23 +272,35 @@ static void IfDemodulateC(uint16_t* pIfIn, uint16_t* pAfOut) {
 	// Save the final state ready for next time.
 	Modes.iIF_Out = (int16_t)iIF_Out;
 	Modes.iAF_Out = (int16_t)iAF_Out;
+
+	//return (uAF_NF);
 }
 #endif
 //
 //=========================================================================
 //
 static void IfDemodulate(uint16_t* pIfIn, uint16_t* pAfOut) {
+
+    //FILE* hFile;
+
 	// Move the end of the previous output buffer to the beginning of this one
 	memcpy(pAfOut, Modes.uAF_oDelay, (MODES_LONG_FRAME_SAMPLES * sizeof(uint16_t)));
 
 #ifdef _ARMASM
 	// Optimised ARM Assembler version of IfDemodulate 
-	IfDemodulateArmAsm(pIfIn, &pAfOut[MODES_LONG_FRAME_SAMPLES], Modes.uIF_iDelay, Modes.uAF_iDelay);
+	//Modes.uAF_NF = 
+    IfDemodulateArmAsm(pIfIn, &pAfOut[MODES_LONG_FRAME_SAMPLES], Modes.uIF_iDelay, Modes.uAF_iDelay);
 #else
 	// Optimised C version of IfDemodulate 
-	IfDemodulateC(pIfIn, &pAfOut[MODES_LONG_FRAME_SAMPLES]);
+	//Modes.uAF_NF = 
+    IfDemodulateC(pIfIn, &pAfOut[MODES_LONG_FRAME_SAMPLES]);
 #endif
-
+/*
+    if ((hFile = fopen("neon1090_u17.txt", "a"))) {
+        fprintf(hFile, "%08X\n", Modes.uAF_NF);
+        fclose(hFile);
+    }
+*/
 	// Move the end of the current output buffer to the output delay line ready for next time
 	memcpy(Modes.uAF_oDelay, &pAfOut[MODES_ASYNC_BUF_SAMPLES], (MODES_LONG_FRAME_SAMPLES * sizeof(uint16_t)));
 }

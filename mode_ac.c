@@ -137,7 +137,11 @@ void decodeModeA(tModesMessage *mm) {
     }
 
     // Calculate the 8 bit signal level
-    uSig            = mm->rm.signalLevel32 >> 12;
+    //uSig            = mm->rm.signalLevel32 >> 12;
+    //mm->signalLevel = (unsigned char) ((uSig < 255) ? uSig : 255);
+    // Calculate the 8 bit signal level
+    uSig = ((uint32_t) sqrt(mm->rm.signalLevel32)) / 4;
+    uSig = uSig > 0 ? uSig : 1; //max(1, sqrt(mm->rm.signalLevel32)/4);
     mm->signalLevel = (unsigned char) ((uSig < 255) ? uSig : 255);
 }
 //
@@ -163,23 +167,23 @@ uint32_t validateModeA(tMessageRaw* rm) {
     if      (pCache->lTime == 0) {
         // This is the first time we've seen this uModeA
 
-    } else if ((rm->lTime - pCache->lTime) > MODEA_CACHE_TTL) {
+    } else if ((rm->lTime - pCache->lTime) > (uint64_t) Modes.mode_ac_prf_ttl ) {
         // If it's been more than MODEA_CACHE_TTL since the last time we saw this uModeA
         // ... clear both the Cache Counts
         pCache->uPrfCount = pCache->uRevCount = 0;
 
-    } else if ((rm->lTime - pCache->lTime) > MODEA_CACHE_MAX_PRF) {
+    } else if ((rm->lTime - pCache->lTime) > (uint64_t) Modes.mode_ac_prf_max) {
         // If it's been more than MODEA_CACHE_MAX_PRF but less than MODEA_CACHE_TTL since the
         // last time we saw this uModeA, then assume this is the next sweep of the radar head
 
         // ... If the previous sweeps PrfCount was 3 or more, increase the RevCount
-        if ( (pCache->uPrfCount > 2)
+        if ( (pCache->uPrfCount >= Modes.mode_ac_prf_count)
           && (pCache->uRevCount < 65535) )
             {pCache->uRevCount++;}
         // ... and zero the PrfCount for this sweep
         pCache->uPrfCount = 0;
 
-    } else if ((rm->lTime - pCache->lTime) > MODEA_CACHE_MIN_PRF) {
+    } else if ((rm->lTime - pCache->lTime) > (uint64_t) Modes.mode_ac_prf_min) {
         // If it's been more than MODEA_CACHE_MIN_PRF but less than MODEA_CACHE_MAX_PRF since 
         // the since the last time we saw this uModeA, then assume this is the same sweep of 
         // the radar head.
@@ -193,7 +197,7 @@ uint32_t validateModeA(tMessageRaw* rm) {
     pCache->lTime = rm->lTime;
 
     // Returns '1' if we've seen (pCache->uPrfCount > 2) for more than (pCache->uRevCount > 1)
-    return (pCache->uRevCount > 1);
+    return (pCache->uRevCount >= Modes.mode_ac_prf_revs);
 }
 //
 //=========================================================================

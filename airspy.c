@@ -643,8 +643,8 @@ int airspy_set_lna_gain(airspy_device_t* device, uint8_t value) {
 	uint8_t retval;
 	uint8_t length;
 
-	if (value > 14)
-		value = 14;
+	if (value > 15)
+		value = 15;
 
 	length = 1;
 
@@ -884,7 +884,6 @@ const char* airspy_error_name(enum airspy_error errcode) {
 //
 // =============================== Airspy Device handling ==========================
 //
-#define PREFERRED_BIAS_TEE            0
 
 void airspy_InitDevice(void) {
 
@@ -907,7 +906,7 @@ void airspy_InitDevice(void) {
 		exit(1);
 	}
 
-	if (AIRSPY_SUCCESS != (iResult = airspy_set_If_bias(Modes.dev, PREFERRED_BIAS_TEE))) {
+	if (AIRSPY_SUCCESS != (iResult = airspy_set_If_bias(Modes.dev, (uint8_t)Modes.bias_t))) {
 		fprintf(stderr, "airspy_set_If_bias() failed: %s (%d)\n", airspy_error_name(iResult), iResult);
 		airspy_close(Modes.dev);
 		exit(1);
@@ -918,17 +917,33 @@ void airspy_InitDevice(void) {
 		airspy_close(Modes.dev);
 		exit(1);
 	}
+
+	if ((Modes.lnagain >= 0) && (Modes.lnagain < 16)
+		&& (AIRSPY_SUCCESS != (iResult = airspy_set_lna_gain(Modes.dev, (int8_t)Modes.lnagain)))) {
+		fprintf(stderr, "airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name(iResult), iResult);
+		airspy_close(Modes.dev);
+		exit(1);
+	}
+
+	if ( (Modes.vgagain >= 0) && (Modes.vgagain < 16)
+	  && (AIRSPY_SUCCESS != (iResult = airspy_set_vga_gain(Modes.dev, (int8_t)Modes.vgagain))) ) {
+		fprintf(stderr, "airspy_set_vga_gain() failed: %s (%d)\n", airspy_error_name(iResult), iResult);
+		airspy_close(Modes.dev);
+		exit(1);
+	}
+
+	if ((Modes.mixergain >= 0) && (Modes.mixergain < 16)
+		&& (AIRSPY_SUCCESS != (iResult = airspy_set_mixer_gain(Modes.dev, (int8_t)Modes.mixergain)))) {
+		fprintf(stderr, "airspy_set_mixer_gain() failed: %s (%d)\n", airspy_error_name(iResult), iResult);
+		airspy_close(Modes.dev);
+		exit(1);
+	}
 }
 //
 //=========================================================================
 //
 // This is used when --ifile is specified in order to read data from file
-// instead of using an Airspy device.
-//
-// The thread reads one MODES_ASYNC_BUF_SIZE block of data from the file at
-// a time, places it in the IF Fifo, and then kicks the IF thread to process
-// it. It then waits for the rest of the program to complete processing
-// the block before reading the next MODES_ASYNC_BUF_SIZE block of data.
+// instead of using an Airspy device
 //
 void* Replay_threadproc (void* arg) {
 
@@ -946,7 +961,7 @@ void* Replay_threadproc (void* arg) {
           && ( (Modes.uDecode_ModeS_In == Modes.uDecode_ModeS_Out)
             || (Modes.uDecode_ModeA_In == Modes.uDecode_ModeA_Out) )
            ) {
-			// All the Fifos are empty, so read the next block of data
+			// The IF Fifo is empty, so read the next chunk of data
 			toread = MODES_ASYNC_BUF_SIZE;
 			p = (unsigned char*) Modes.pFileData;
 			while (toread) {
@@ -970,10 +985,10 @@ void* Replay_threadproc (void* arg) {
 			if (!Modes.exit) {
 				if (toread) {
 					// Not enough data on file to fill the buffer? Pad with no signal.
-					memset(p, 0, toread);
+					memset(p, 127, toread);
 				}
 
-				uIF_In = Modes.uIF_In & (MODES_ASYNC_BUF_NUMBER - 1);
+				uIF_In = Modes.uIF_In & (MODES_ASYNC_BUF_NUMBER - 1); // Just incase!!!
 
 				// Queue the new data
 				Modes.IF_Fifo[uIF_In].pFifo = Modes.pFileData;
@@ -981,8 +996,7 @@ void* Replay_threadproc (void* arg) {
 				Modes.IF_Fifo[uIF_In].lTime = Modes.timestampBlk;
 				Modes.uIF_In++;
                 Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES);
-				// Signal to the IF thread that new data is ready. It won't run yet 
-				// because we hold the IF mutex
+				// Signal to the IF thread that new data is ready. It won't run yet because we hold the IF mutex
 				pthread_cond_signal(&Modes.IF_cond);
 			}
 
@@ -1006,10 +1020,6 @@ void* Replay_threadproc (void* arg) {
 }
 //
 //=========================================================================
-//
-// Launch a thread to read the specified --iFile, and feed the data into the 
-// IF Fifos so that the rest of the software thinks there is data coming from
-// a real Airspy device.
 //
 void airspy_start_replay(void) {
 	pthread_attr_t attr;

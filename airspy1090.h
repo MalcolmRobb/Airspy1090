@@ -38,7 +38,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_AIRSPY1090_VERSION     "1.0.0708.21"
+#define MODES_AIRSPY1090_VERSION     "1.0.0709.21"
 
 // ============================= Include files ==========================
 
@@ -128,7 +128,7 @@ static const uint16_t airspy_usb_pid = 0x60a1;
 
 #define MODEAC_MSG_SAMPLES       (25 * 2)                     // include up to the SPI bit
 #define MODEAC_MSG_BYTES          2
-#define MODEAC_MSG_SQUELCH_LEVEL  0x02FC                      // Average signal strength limit
+#define MODEAC_MSG_SQUELCH_LEVEL  0x03FF                      // Average signal strength limit
 #define MODEAC_MSG_FLAG          (1<<0)
 #define MODEAC_MSG_MODES_HIT     (1<<1)
 #define MODEAC_MSG_MODEA_HIT     (1<<2)
@@ -168,9 +168,11 @@ static const uint16_t airspy_usb_pid = 0x60a1;
 #define MODES_UNIT_METERS 1
 
 #define MODEA_CACHE_LEN     (4096)
-#define MODEA_CACHE_TTL     (15 * MODES_DEFAULT_RATE)  // Time to live of cached ModeA
 #define MODEA_CACHE_MIN_PRF (20000)                    // Minimum ModeA PRF 1mS
 #define MODEA_CACHE_MAX_PRF (2000000)                  // Maximum ModeA PRF 100mS
+#define MODEA_CACHE_CNT_PRF (3)
+#define MODEA_CACHE_REV_PRF (2)
+#define MODEA_CACHE_TTL_PRF (15 * MODES_DEFAULT_RATE)  // Time to live of cached ModeA
 
 #define MODES_USER_LATLON_VALID (1<<0)
 
@@ -214,7 +216,7 @@ static const uint16_t airspy_usb_pid = 0x60a1;
 
 #define MODES_NOTUSED(V) ((void) V)
 
-#define kDFValid (0x0F7F0831) // One bit per 32 possible DF's. Set bits 0,4,5,11,16,17,18,19,20,21,22,24-27
+#define kDFValid (0x00370831) // One bit per 32 possible DF's. Set bits 0,4,5,11,16,17,18,20,21
 
 //======================== structure declarations =========================
 
@@ -329,7 +331,7 @@ typedef struct stModesMessage {
 typedef struct stFifo16 {
     uint16_t* pFifo; // Pointer to the data in this FIFO entry
     uint32_t  uLost; // Count of the buffers lost after this buffer
-    uint64_t  lTime;
+    uint64_t  lTime; // Time of the start of the buffer
 } tFifo16;
 
 // Program global state
@@ -390,10 +392,13 @@ struct {                               // Internal state
 
     // Device Control
     int                   dev_index;
-    int                   gain;
-    int                   enable_agc;
-    airspy_device_t      *dev;
-    int                   freq;
+    airspy_device_t*      dev;
+    int                   gain;            // Linearity gain setting
+    int                   vgagain;         // Vga gain override (-1 = unused)
+    int                   lnagain;         // Lna gain override (-1 = unused)
+    int                   mixergain;       // mixer gain override (-1 = unused)
+    int                   bias_t;          // Bias_t ( 1=enabled, 0 = disabled)
+    int                   freq;            // Tuner frequency (= 1090Mhz)
 
     // Networking
     char            aneterr[ANET_ERR_LEN];
@@ -422,9 +427,14 @@ struct {                               // Internal state
 #endif
 
     // Configuration
-    char *filename;                  // Input form file, --ifile option
-    int   beast;                     // Beast binary format output
-    int   mode_ac;                   // Enable decoding of SSR Modes A & C
+    char     *filename;              // Input form file, --ifile option
+    int       mode_ac;               // Enable decoding of SSR Modes A & C
+    int       mode_ac_prf_min;       // Minimum mode A/C PRF rate (in ms)
+    int       mode_ac_prf_max;       // Maximum mode A/C PRF rate (in ms)
+    uint32_t  mode_ac_prf_count;     // Min mode A/C PRF count
+    uint32_t  mode_ac_prf_revs;      // Min mode A/C REV count
+    int       mode_ac_prf_ttl;       // Mode A/C Time to Live
+
     int   net_heartbeat_count;       // TCP heartbeat counter
     int   net_heartbeat_rate;        // TCP heartbeat rate
     int   net_output_raw_size;       // Minimum Size of the output raw data

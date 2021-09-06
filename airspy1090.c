@@ -69,17 +69,27 @@ void modesInitConfig(void) {
 
     // Now initialise things that should not be 0/NULL to their defaults
     Modes.gain                    = MODES_MAX_GAIN;
+    Modes.lnagain                 = -1;
+    Modes.vgagain                 = -1;
+    Modes.mixergain               = -1;
     Modes.freq                    = MODES_DEFAULT_FREQ;
     Modes.net_heartbeat_rate      = MODES_NET_HEARTBEAT_RATE;
     Modes.net_output_sbs_port     = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_avr_port     = MODES_NET_OUTPUT_AVR_PORT;
     Modes.net_output_raw_port     = MODES_NET_OUTPUT_RAW_PORT;
     Modes.net_output_beast_port   = MODES_NET_OUTPUT_BEAST_PORT;
+    Modes.interactive             = 1;
     Modes.interactive_rows        = getTermRows();
     Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
     Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
     Modes.fUserLat                = MODES_USER_LATITUDE_DFLT;
     Modes.fUserLon                = MODES_USER_LONGITUDE_DFLT;
+
+    Modes.mode_ac_prf_min         = MODEA_CACHE_MIN_PRF;
+    Modes.mode_ac_prf_max         = MODEA_CACHE_MAX_PRF;
+    Modes.mode_ac_prf_count       = MODEA_CACHE_CNT_PRF;
+    Modes.mode_ac_prf_revs        = MODEA_CACHE_REV_PRF;
+    Modes.mode_ac_prf_ttl         = MODEA_CACHE_TTL_PRF;
 }
 //
 //=========================================================================
@@ -241,16 +251,24 @@ void showHelp(void) {
 "-----------------------------------------------------------------------------\n"
 "|                Airspy1090 Mode 1/2/3/A/C/S Receiver    Ver : " MODES_AIRSPY1090_VERSION " |\n"
 "-----------------------------------------------------------------------------\n"
-"--device-index <index>   Select RTL device (default: 0)\n"
-"--gain <db>              Set gain (default: max gain. Use -10 for auto-gain)\n"
-"--enable-agc             Enable the Automatic Gain Control (default: off)\n"
+"--device-index <index>   Select Airspy device (default: 0)\n"
+"--gain <step>            Set gain (default: 21 (max gain). Range 21 (max) to 0(min)\n"
+"--vgagain <value>        Set vga gain (default: -1 (disabled). Range 15 (max) to 0(min)\n"
+"--lnagain <value>        Set lna gain (default: -1 (disabled). Range 15 (max) to 0(min)\n"
+"--mixergain <value>      Set mixer gain (default: -1 (disabled). Range 15 (max) to 0(min)\n"
+"--enable-biast           Enable Airspy Bias-T output (default: off)\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz)\n"
-"--ifile <filename>       Read data from file (use '-' for stdin)\n"
-"--interactive            Interactive mode refreshing data on screen\n"
+"--ifile <filename>       Read data from file\n"
+"--list                   List data on screen\n"
+"--interactive            Interactive mode refreshing data on screen (default)\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15)\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60)\n"
 "--modeac                 Enable decoding of SSR Modes 3/A & 3/C\n"
-"--net-beast              TCP raw output in Beast binary format\n"
+"--modeac-prf-min <ms>    Minimum Mode A/C PRF repetition rate (default: 1 mS)\n"
+"--modeac-prf-max <ms>    Maximum Mode A/C PRF repetition rate (default: 100 mS)\n"
+"--modeac-prf-count <n>   Minimum Mode A/C PRF counts (default: 3)\n"
+"--modeac-prf-revs <n>    Maximum Mode A/C PRF revolutions (default: 2)\n"
+"--modeac-prf-ttl <n>     Maximum Mode A/C PRF time to live (default: 15 Sec)\n"
 "--net-bind-address <ip>  IP address to bind to (default: Any; Use 127.0.0.1 for private)\n"
 "--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
 "--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
@@ -406,17 +424,31 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = verbose_device_search(argv[++j]);
         } else if (!strcmp(argv[j],"--gain") && more) {
-            Modes.gain = (int) (atof(argv[++j])*10); // Gain is in tens of DBs
-        } else if (!strcmp(argv[j],"--enable-agc")) {
-            Modes.enable_agc++;
+            Modes.gain = atoi(argv[++j]);
+        } else if (!strcmp(argv[j], "--lnagain") && more) {
+            Modes.lnagain = atoi(argv[++j]);
+        } else if (!strcmp(argv[j], "--vgagain") && more) {
+            Modes.vgagain = atoi(argv[++j]);
+        } else if (!strcmp(argv[j], "--mixergain") && more) {
+            Modes.mixergain = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--enable-biast")) {
+            Modes.bias_t = 1;
         } else if (!strcmp(argv[j],"--freq") && more) {
             Modes.freq = (int) strtoll(argv[++j],NULL,10);
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--modeac")) {
             Modes.mode_ac = 1;
-        } else if (!strcmp(argv[j],"--net-beast")) {
-            Modes.beast = 1;
+        } else if (!strcmp(argv[j],"--modeac-prf-min") && more) {
+            Modes.mode_ac_prf_min = atoi(argv[++j]) * 20000;
+        } else if (!strcmp(argv[j],"--modeac-prf-max") && more) {
+            Modes.mode_ac_prf_max = atoi(argv[++j]) * 20000;
+        } else if (!strcmp(argv[j],"--modeac-prf-count") && more) {
+            Modes.mode_ac_prf_count = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--modeac-prf-revs") && more) {
+            Modes.mode_ac_prf_revs = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--modeac-prf-ttl") && more) {
+            Modes.mode_ac_prf_ttl = atoi(argv[++j]) * 20000000;
         } else if (!strcmp(argv[j],"--net-heartbeat") && more) {
             Modes.net_heartbeat_rate = atoi(argv[++j]) * 15;
         } else if (!strcmp(argv[j],"--net-ro-size") && more) {
@@ -424,10 +456,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-ro-rate") && more) {
             Modes.net_output_raw_rate = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
-            if (Modes.beast) // Required for legacy backward compatibility
-                {Modes.net_output_beast_port = atoi(argv[++j]);;}
-            else
-                {Modes.net_output_raw_port = atoi(argv[++j]);}
+            Modes.net_output_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-avr-port") && more) {
             Modes.net_output_avr_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-bo-port") && more) {
@@ -438,6 +467,8 @@ int main(int argc, char **argv) {
             Modes.net_output_sbs_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-buffer") && more) {
             Modes.net_sndbuf_size = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--list")) {
+            Modes.interactive = 0;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows") && more) {
@@ -495,6 +526,9 @@ int main(int argc, char **argv) {
     {
         FILE* hFile;
         if ((hFile = fopen("airspy1090_u17.txt", "w"))) {
+            fclose(hFile);
+        }
+        if ((hFile = fopen("neon1090_u17.txt", "w"))) {
             fclose(hFile);
         }
     }

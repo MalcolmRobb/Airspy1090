@@ -155,7 +155,9 @@ void decodeModeS(tModesMessage *mm) {
     uint32_t uSig;
 
     // Calculate the 8 bit signal level
-    uSig = mm->rm.signalLevel32 >> 12;
+//  uSig = mm->rm.signalLevel32 >> 12;
+    uSig = ((uint32_t) sqrt(mm->rm.signalLevel32)) / 4;
+    uSig = uSig > 0 ? uSig : 1; //max(1, sqrt(mm->rm.signalLevel32)/4);
     mm->signalLevel = (unsigned char) ((uSig < 255) ? uSig : 255);
 
     if (uMsgType == 11) { // DF11

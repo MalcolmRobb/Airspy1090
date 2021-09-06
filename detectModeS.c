@@ -31,12 +31,12 @@
 //
 //=========================================================================
 //
-// We are sampling at 9 times the ModeA bit rate, and 10 times the ModeS
-// bit rate. Therefore we may get lots of (9 or 10) consecutive succesful
-// decodes of the same message. We need to filter these so that we only 
-// output one of them - preferably the best quality one.
+// We are sampling at 10 times the ModeS half bit rate. Therefore we may get
+// lots of (10 or more) consecutive succesful decodes of the same message. 
+// We need to filter these so that we only output one of them - preferably 
+// the best quality one.
 //
-// We can also count the number of consecutive decodes, and reject frames
+// We could also count the number of consecutive decodes, and reject frames
 // that don't have several identical decodes to improve noise rejection. 
 //
 static tMessageRaw** enQueueModeS(tMessageRaw* rm, tMessageRaw* *pQ) {
@@ -48,10 +48,11 @@ static tMessageRaw** enQueueModeS(tMessageRaw* rm, tMessageRaw* *pQ) {
 
 	*pQ = qm; // Add this item to the end of the current queue.
 
-    // Lump all Mode S decodes that occur within a preambles time (320 samples) together
-    // ModeS messages can't be inteleaved, so this value could be set to anything from 
-    // one bit period (10 samples) to one full frame (1440/2560 samples)
-	Modes.uModeSTimeout = 320;
+    // Lump all Mode S decodes that occur within a preambles time (8uS/160 samples) 
+	// together. ModeS messages can't be inteleaved, so this value could be set to 
+	// anything from one half bit period (10 samples) to one full frame (1280/2400 
+	// samples)
+	Modes.uModeSTimeout = 160;
 
 	return (&qm->pNext); // return the address of the pNext element of this qm.
 }
@@ -87,7 +88,7 @@ static tMessageRaw** postDecodeModeS(void) {
 //
 // Perform minimal message decoding to validate the DF against the Whitelist
 // We will receive several phases of the same message for most decodes, so
-// we need to minimise the time spent decoding before we chose the 'best'
+// we need to minimise the time spent decoding before we chose the 'best' one.
 //
 #ifdef _ARMASM
 
@@ -114,7 +115,7 @@ uint32_t validateModeS(tMessageRaw* rm, tICAOCache* pWhitelist, uint64_t lTimeSt
         "lsr     r11,r4, #27\n\t"            //@ rll = DFType
 
         "mov     r6, #0x0831\n\t"
-        "movt    r6, #0x0F7F\n\t"            //@ r6 = kDFValid
+        "movt    r6, #0x0037\n\t"            //@ r6 = kDFValid = 0x00370831
         "mov     r1, #1\n\t"
         "lsl     r1, r1, r11\n\t"            //@ r1 = (1 << DFType)
         "ands    r1, r1, r6\n\t"             //@ if ((r1 & kDFValid) == 0)....
@@ -369,7 +370,7 @@ uint32_t validateModeS(tMessageRaw* rm, tICAOCache* pWhitelist, uint64_t lTime) 
     // Get the DF message type ASAP as other operations depend on it
     uint32_t uMsgType = (rm->ucMsg[0] >> 3); // Downlink Format
 
-    // Only DF0, DF4, DF5, DF11, DF16, DF17, DF18, DF19, DF20, DF21 and DF24-27 are valid
+    // Only DF0, DF4, DF5, DF11, DF16, DF17, DF18, DF20, DF21 and DF24-31 are valid
     if (0 == (kDFValid & (1 << uMsgType))) {
         return (0);
     }
@@ -1281,9 +1282,7 @@ uint32_t detectModeSArmNEON(uint16_t* puAF, tMessageRaw* pLane) {
 //
 //=========================================================================
 //
-// Detect a Mode A/S messages inside the magnitude buffer pointed by 'm' and of
-// size 'mlen' bytes. Every detected Mode S message is converted into a
-// stream of bits and passed to the function to display it.
+// Detect a Mode A/S messages inside the magnitude buffer pointed by puAF.
 //
 
 static tMessageRaw rmLane[8];
@@ -2110,11 +2109,11 @@ uint32_t detectModeS(uint16_t* puAF, tMessageRaw* pLane) {
             // message types. If it isn't then toggle the guessed bit and see if this new value is ICAO defined.
             // if the new value is ICAO defined, then update it in our message.
             //
+            uint32_t thisDFbit = (1 << theByte);
             if (nBitGuess > 1) { // More than one guess in the DF field, so abandon ship now
                 return (0);
             } else if (nBitGuess) { // One and only one guess in the DF field...
-             // See if our guess is likely to be correct by comparing the DF against a list of known good DF's
-                uint32_t thisDFbit = (1 << theByte);
+                // See if our guess is likely to be correct by comparing the DF against a list of known good DF's
                 if (0 == (kDFValid & thisDFbit)) {
                     // The current DF is not ICAO defined, so is probably an error. 
                     // Toggle the bit we guessed at and see if the resultant DF is any more likely
@@ -2127,7 +2126,10 @@ uint32_t detectModeS(uint16_t* puAF, tMessageRaw* pLane) {
                         return (0);
                     }
                 }
-            }
+            } else if (0 == (kDFValid & thisDFbit)) {
+				// No guesses, but the DF is invalid
+                return (0);
+			}
         }
         theByte = theByte << 1;
         dfErrBits = dfErrBits << 1;
